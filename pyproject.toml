@@ -1,0 +1,12 @@
+[project]
+name = "paperqa2-cyberian"
+version = "0.1.0"
+description = "paperqa2 experiment using Cyberian/agentapi (codex) as the LLM backend"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "paper-qa>=2026.2.16",
+    "httpx>=0.28",
+    "pypdf[image]>=6.7.1",
+    "sentence-transformers>=5.2.3",
+]
