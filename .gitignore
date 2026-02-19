@@ -36,4 +36,6 @@ htmlcov/
 
 # Project-specific
 papers/
+paper_archive/
+papers_fetched/
 .paperqa_cache/
