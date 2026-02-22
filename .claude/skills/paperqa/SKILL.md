@@ -1,11 +1,11 @@
 ---
 name: paperqa
-description: RAG pipeline over local papers. Reads PDFs/text from papers/ directory, chunks them, uses parallel subagents to score relevance, and synthesizes a cited answer. Use when asked to answer questions about papers in the project.
+description: RAG pipeline over local papers. Uses embedding retrieval to find relevant chunks, Haiku re-ranks and summarizes them, then synthesizes a cited answer. Use when asked to answer questions about papers in the project.
 argument-hint: [question]
 allowed-tools: Read, Glob, Grep, Task, Bash
 ---
 
-# PaperQA — RAG over local papers
+# PaperQA — Embedding retrieval + Haiku re-ranking
 
 You are a research assistant performing retrieval-augmented generation over local papers. Follow this pipeline exactly.
 
@@ -13,61 +13,48 @@ You are a research assistant performing retrieval-augmented generation over loca
 
 The user's research question is provided as the skill argument: `$ARGUMENTS`
 
-## Step 1: Discover papers
+## Step 1: Vector retrieval
 
-Use Glob to find all papers:
-- `papers/*.pdf`
-- `papers/*.txt`
-- `papers_fetched/*.txt`
+Run the embedding retrieval script to get the top-k most relevant chunks:
 
-List what you found. If no papers are found, tell the user and stop.
+```bash
+uv run python retrieve_chunks.py "$ARGUMENTS" --k 15 --papers-dir papers papers_fetched
+```
 
-## Step 2: Read and chunk papers
+This uses local sentence-transformer embeddings (no LLM calls) to find the most relevant chunks across all papers. Parse the JSON array from stdout.
 
-For each paper found:
-- **PDF files**: Use Read with the `pages` parameter. Read in batches of up to 10 pages at a time (e.g., pages "1-10", "11-20", etc.). First read pages "1-2" to gauge length, then read remaining page ranges.
-- **Text files**: Use Read. For files over 200 lines, read in 200-line segments using `offset` and `limit`.
+If no chunks are returned (empty array), tell the user no papers were found and stop.
 
-Track each chunk as: `(paper_filename, chunk_index, first_50_chars_preview)`
+## Step 2: Haiku re-ranking + summarization
 
-Read multiple papers in parallel where possible.
-
-## Step 3: Parallel evidence gathering
-
-For each chunk, spawn a **haiku** Task subagent with this prompt:
+For each retrieved chunk, spawn a **haiku** Task subagent to score relevance and write a focused summary:
 
 ```
 You are scoring a text chunk for relevance to a research question.
 
 Research question: "{question}"
+Paper: {doc_name}
+Chunk: {name}
 
-Paper: {paper_filename}, chunk {chunk_index}
-
-Text chunk:
+Text:
 ---
-{chunk_text}
+{text}
 ---
 
-Instructions:
-1. Rate relevance to the research question from 0-10.
-2. If relevance >= 5, write a 2-3 sentence summary of the relevant evidence found in this chunk. Include specific data points, findings, or claims.
-3. If relevance < 5, summary should be empty string.
-
+Provide a summary of relevant information that could help answer the question.
 Respond with ONLY valid JSON, no other text:
-{"relevance": N, "summary": "..."}
+{"relevance_score": 0-10, "summary": "2-3 sentence summary of relevant evidence, or empty string if irrelevant"}
 ```
 
 Important:
 - Use `model: haiku` for all chunk-scoring subagents to keep costs low and speed high.
 - Use `subagent_type: general-purpose` for the Task calls.
-- Launch subagents in **parallel batches** — put multiple Task tool calls in a single message. Batch size of 5-8 is ideal.
-- Collect all results. Sort by relevance score descending. Keep the **top 10** chunks.
+- Launch subagents in **parallel batches** of 5-8 — put multiple Task tool calls in a single message.
+- Collect all results. **Drop chunks with relevance_score < 5.** Sort by score descending. Keep the **top 10**.
 
-## Step 4: Synthesize answer
+## Step 3: Synthesize answer from summaries
 
-Now, as the main agent, you have the top 10 evidence chunks with their summaries and source papers. Re-read the full text of each top chunk if needed for accuracy.
-
-Produce a final answer in this exact format:
+Using **only the Haiku-generated summaries** (not the raw chunk text), produce a final answer:
 
 ```
 ANSWER
@@ -77,14 +64,14 @@ Be thorough but concise. Ground every claim in evidence from the papers.]
 
 REFERENCES
 ==========
-[1] paper_filename (chunk N) — "brief relevant quote from the chunk"
-[2] paper_filename (chunk N) — "brief relevant quote from the chunk"
+[1] doc_name (chunk_name) — "brief relevant quote from summary"
+[2] doc_name (chunk_name) — "brief relevant quote from summary"
 ...
 ```
 
 ## Guidelines
 
-- Never fabricate evidence. Only cite what you actually read from the papers.
+- Never fabricate evidence. Only cite what was found in the chunk summaries.
 - If the papers don't contain enough information to answer the question, say so clearly and report what was found.
 - Prefer specific data points and findings over vague summaries.
 - When papers disagree, note the disagreement and cite both sides.

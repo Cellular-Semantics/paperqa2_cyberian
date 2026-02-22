@@ -70,59 +70,48 @@ except Exception as e:
 
 Launch downloads in **parallel batches** of 5. Report how many papers were successfully downloaded.
 
-## Step 3: Discover all papers
+## Step 3: Vector retrieval
 
-Use Glob to find all papers available for RAG:
-- `papers/*.pdf`
-- `papers/*.txt`
-- `papers_fetched/*.txt`
+Run the embedding retrieval script to get the top-k most relevant chunks across all papers (local + fetched):
 
-List what was found. Prioritize newly fetched papers but include existing ones too.
+```bash
+uv run python retrieve_chunks.py "$ARGUMENTS" --k 15 --papers-dir papers papers_fetched
+```
 
-## Step 4: Read and chunk papers
+This uses local sentence-transformer embeddings (no LLM calls). Parse the JSON array from stdout.
 
-For each paper:
-- **PDF files**: Use Read with `pages` parameter. Read in batches of up to 10 pages (e.g., "1-10", "11-20"). First read pages "1-2" to gauge length.
-- **Text files**: Use Read. For files over 200 lines, read in 200-line segments using `offset` and `limit`.
+If no chunks are returned, tell the user and stop.
 
-Track each chunk as: `(paper_filename, chunk_index, first_50_chars_preview)`
+## Step 4: Haiku re-ranking + summarization
 
-Read multiple papers in parallel where possible.
-
-## Step 5: Parallel evidence gathering
-
-For each chunk, spawn a **haiku** Task subagent with this prompt:
+For each retrieved chunk, spawn a **haiku** Task subagent to score relevance and write a focused summary:
 
 ```
 You are scoring a text chunk for relevance to a research question.
 
 Research question: "{question}"
+Paper: {doc_name}
+Chunk: {name}
 
-Paper: {paper_filename}, chunk {chunk_index}
-
-Text chunk:
+Text:
 ---
-{chunk_text}
+{text}
 ---
 
-Instructions:
-1. Rate relevance to the research question from 0-10.
-2. If relevance >= 5, write a 2-3 sentence summary of the relevant evidence found in this chunk. Include specific data points, findings, or claims.
-3. If relevance < 5, summary should be empty string.
-
+Provide a summary of relevant information that could help answer the question.
 Respond with ONLY valid JSON, no other text:
-{"relevance": N, "summary": "..."}
+{"relevance_score": 0-10, "summary": "2-3 sentence summary of relevant evidence, or empty string if irrelevant"}
 ```
 
 Important:
 - Use `model: haiku` for all chunk-scoring subagents.
 - Use `subagent_type: general-purpose` for the Task calls.
 - Launch subagents in **parallel batches** of 5-8.
-- Collect all results. Sort by relevance descending. Keep the **top 10**.
+- Collect all results. **Drop chunks with relevance_score < 5.** Sort by score descending. Keep the **top 10**.
 
-## Step 6: Synthesize answer
+## Step 5: Synthesize answer from summaries
 
-Re-read the full text of each top-10 chunk if needed. Produce a final answer:
+Using **only the Haiku-generated summaries** (not the raw chunk text), produce a final answer:
 
 ```
 ANSWER
@@ -132,21 +121,21 @@ Ground every claim in evidence from the papers. Be thorough but concise.]
 
 REFERENCES
 ==========
-[1] paper_filename (chunk N) — "brief relevant quote"
-[2] paper_filename (chunk N) — "brief relevant quote"
+[1] doc_name (chunk_name) — "brief relevant quote from summary"
+[2] doc_name (chunk_name) — "brief relevant quote from summary"
 ...
 
 SEARCH METADATA
 ===============
 Queries used: [list the 3 EuropePMC queries]
 Papers found: N total, M with full text downloaded
-Papers analyzed: K
-Top evidence chunks scored: J out of total L chunks
+Chunks retrieved: K (from embedding search)
+Top evidence chunks after re-ranking: J
 ```
 
 ## Guidelines
 
-- Never fabricate evidence. Only cite what you actually read from the papers.
+- Never fabricate evidence. Only cite what was found in the chunk summaries.
 - If the search returns insufficient results, say so clearly and suggest alternative search terms.
 - Prefer specific data points and findings over vague summaries.
 - When papers disagree, note the disagreement and cite both sides.
