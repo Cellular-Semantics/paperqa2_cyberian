@@ -10,6 +10,8 @@ RAG pipeline using [paperqa2](https://pypi.org/project/paper-qa/) to retrieve an
 
 ## Quick start
 
+### Local papers (main.py)
+
 **1. Start one or more agentapi/codex servers** (each in its own terminal):
 
 ```bash
@@ -36,6 +38,31 @@ For parallel processing across multiple instances:
 ```bash
 AGENTAPI_PORTS=3284,3285 uv run python main.py "What are the main findings?"
 ```
+
+### Claude Code skills (no agentapi required)
+
+Two [Claude Code](https://claude.ai/claude-code) skills are provided. These use local
+sentence-transformer embeddings for retrieval and Claude Haiku for re-ranking — no agentapi
+server needed.
+
+**`/paperqa`** — RAG over papers already in `papers/` or `papers_fetched/`:
+
+```text
+/paperqa What are the main findings about ILRUN gene expression?
+```
+
+**`/literature-search`** — fetch papers from EuropePMC then run RAG:
+
+```text
+/literature-search Summarise what is known about the function and expression of the ILRUN gene
+```
+
+Both skills use `retrieve_chunks.py` to narrow to the top-k most relevant chunks via
+cosine similarity before any LLM calls, then Haiku re-ranks and summarises those chunks in
+parallel.
+
+> **Note:** sentence-transformers requires network access to `huggingface.co` on first use
+> (to download the model). See `planning/ROADMAP.md` item 1 for details and workarounds.
 
 ## Features
 
@@ -83,6 +110,11 @@ paperqa2 asks the LLM to return structured JSON for chunk summaries. Each call i
 | --- | --- |
 | `main.py` | Entry point; embedding cache, agentapi lifecycle, paperqa2 wiring |
 | `cyberian_llm.py` | `CyberianLLMModel` — `LLMModel` subclass that routes calls to agentapi |
-| `papers/` | Input PDFs |
+| `retrieve_chunks.py` | Standalone embedding retrieval CLI — indexes papers, returns top-k chunks as JSON (no LLM calls) |
+| `.claude/skills/paperqa/` | `/paperqa` skill — embedding retrieval + Haiku re-ranking over local papers |
+| `.claude/skills/literature-search/` | `/literature-search` skill — EuropePMC fetch + same retrieval pipeline |
+| `papers/` | Input PDFs (git-ignored) |
+| `papers_fetched/` | Full texts fetched by `/literature-search` (git-ignored) |
+| `test_papers/` | Sample paper for integration testing |
 | `.paperqa_cache/` | Embedding cache (auto-created, git-ignored) |
 | `planning/` | Design notes and roadmap |
