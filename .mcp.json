@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "artl-mcp": {
+      "command": "uvx",
+      "args": ["artl-mcp"],
+      "tools": ["*"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ],
+     "tools": ["*"]
+    }
+  }
+}
