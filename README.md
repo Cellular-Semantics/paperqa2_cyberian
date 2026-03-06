@@ -106,11 +106,14 @@ paperqa2 asks the LLM to return structured JSON for chunk summaries. Each call i
 
 ## Files
 
-| File | Purpose |
+| File / Directory | Purpose |
 | --- | --- |
-| `main.py` | Entry point; embedding cache, agentapi lifecycle, paperqa2 wiring |
-| `cyberian_llm.py` | `CyberianLLMModel` — `LLMModel` subclass that routes calls to agentapi |
-| `retrieve_chunks.py` | Standalone embedding retrieval CLI — indexes papers, returns top-k chunks as JSON (no LLM calls) |
+| `main.py` | Shim — delegates to `paperqa2_cyberian.main`; run with `uv run python main.py` |
+| `retrieve_chunks.py` | Shim — delegates to `paperqa2_cyberian.retrieve_chunks`; kept at root so skills can call it directly |
+| `paperqa2_cyberian/main.py` | Agentapi lifecycle, embedding cache, paperqa2 wiring |
+| `paperqa2_cyberian/cyberian_llm.py` | `CyberianLLMModel` — `LLMModel` subclass that routes calls to agentapi |
+| `paperqa2_cyberian/retrieve_chunks.py` | Embedding retrieval CLI — indexes papers, returns top-k chunks as JSON (no LLM calls) |
+| `paperqa2_cyberian/cache.py` | Shared embedding cache helpers (key generation, load, save) |
 | `.claude/skills/paperqa/` | `/paperqa` skill — embedding retrieval + Haiku re-ranking over local papers |
 | `.claude/skills/literature-search/` | `/literature-search` skill — EuropePMC fetch + same retrieval pipeline |
 | `papers/` | Input PDFs (git-ignored) |
