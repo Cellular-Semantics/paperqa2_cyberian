@@ -15,7 +15,7 @@ dependencies = [
 retrieve-chunks = "paperqa2_cyberian.retrieve_chunks:main"
 paperqa2-cyberian = "paperqa2_cyberian.main:main"
 parse-jats-citations = "paperqa2_cyberian.parse_jats_citations:cli_main"
-extract-asta-refs = "paperqa2_cyberian.extract_asta_refs:cli_main"
+extract-asta-refs = "paperqa2_cyberian.extract_asta_refs:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8"]

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import pathlib
+import urllib.error
 import urllib.request
 
 import pytest
@@ -14,6 +16,63 @@ from paperqa2_cyberian.extract_asta_refs import (
     _find_sentence_for_ref,
     extract_ref_mentions,
 )
+
+
+# ---------------------------------------------------------------------------
+# MCP transport helper (for integration tests only)
+# ---------------------------------------------------------------------------
+
+def _call_snippet_search(
+    query: str, limit: int = 10, paper_ids: str | None = None
+) -> dict:
+    """Call ASTA snippet_search via MCP HTTP transport.
+
+    Reads connection details from .mcp.json in the project root.
+    """
+    mcp_path = pathlib.Path(__file__).resolve().parent.parent / ".mcp.json"
+    if not mcp_path.exists():
+        pytest.skip(f"MCP config not found: {mcp_path}")
+    with open(mcp_path) as f:
+        config = json.load(f)
+    server = config.get("mcpServers", {}).get("Asta_semanticscholar", {})
+    mcp_url = server.get("url", "")
+    mcp_headers = server.get("headers", {})
+    if not mcp_url:
+        pytest.skip("Asta_semanticscholar not configured in .mcp.json")
+
+    arguments: dict = {"query": query, "limit": limit}
+    if paper_ids:
+        arguments["paper_ids"] = paper_ids
+
+    payload = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "snippet_search", "arguments": arguments},
+    }).encode()
+
+    req = urllib.request.Request(mcp_url, data=payload, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Accept", "application/json, text/event-stream")
+    for k, v in mcp_headers.items():
+        req.add_header(k, v)
+
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        raw = resp.read().decode()
+
+    # Parse SSE response: extract JSON from "data:" lines
+    rpc_response = None
+    for line in raw.splitlines():
+        if line.startswith("data: "):
+            rpc_response = json.loads(line[6:])
+            break
+    if rpc_response is None:
+        rpc_response = json.loads(raw)
+
+    rpc_result = rpc_response.get("result", {})
+    content = rpc_result.get("content", [])
+    assert content, "Empty MCP response"
+    return json.loads(content[0].get("text", "{}"))
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -311,8 +370,6 @@ class TestIntegration:
 
     @staticmethod
     def _search(query: str, limit: int = 10, paper_ids: str | None = None) -> dict:
-        from paperqa2_cyberian.extract_asta_refs import _call_snippet_search
-
         return _call_snippet_search(query, limit, paper_ids)
 
     def test_demilune_snippets_have_refs(self):

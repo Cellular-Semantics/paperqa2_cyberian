@@ -2,15 +2,16 @@
 
 Provides structured extraction of Semantic Scholar corpus IDs from
 snippet_search results, with sentence-level context and deduplication.
+
+CLI usage (reads snippet JSON from stdin):
+    snippet_search_output | uv run python -m paperqa2_cyberian.extract_asta_refs --query "tanycyte markers"
 """
 
 from __future__ import annotations
 
 import json
 import sys
-import urllib.request
-import urllib.error
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 
 @dataclass
@@ -168,105 +169,29 @@ def extract_ref_mentions(
     )
 
 
-def _load_mcp_config() -> tuple[str, dict[str, str]]:
-    """Load ASTA MCP server URL and headers from .mcp.json."""
-    import pathlib
-
-    mcp_path = pathlib.Path(__file__).resolve().parent.parent / ".mcp.json"
-    if not mcp_path.exists():
-        print(f"MCP config not found: {mcp_path}", file=sys.stderr)
-        sys.exit(1)
-    with open(mcp_path) as f:
-        config = json.load(f)
-    server = config.get("mcpServers", {}).get("Asta_semanticscholar", {})
-    url = server.get("url", "")
-    headers = server.get("headers", {})
-    if not url:
-        print("Asta_semanticscholar not configured in .mcp.json", file=sys.stderr)
-        sys.exit(1)
-    return url, headers
-
-
-def _call_snippet_search(
-    query: str, limit: int = 10, paper_ids: str | None = None
-) -> dict:
-    """Call ASTA snippet_search via MCP HTTP transport."""
-    mcp_url, mcp_headers = _load_mcp_config()
-
-    arguments: dict = {"query": query, "limit": limit}
-    if paper_ids:
-        arguments["paper_ids"] = paper_ids
-
-    # MCP JSON-RPC call
-    payload = json.dumps({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {
-            "name": "snippet_search",
-            "arguments": arguments,
-        },
-    }).encode()
-
-    req = urllib.request.Request(mcp_url, data=payload, method="POST")
-    req.add_header("Content-Type", "application/json")
-    req.add_header("Accept", "application/json, text/event-stream")
-    for k, v in mcp_headers.items():
-        req.add_header(k, v)
-
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            raw = resp.read().decode()
-    except urllib.error.HTTPError as e:
-        print(f"MCP API error: {e.code} {e.reason}", file=sys.stderr)
-        sys.exit(1)
-
-    # Parse SSE response: extract JSON from "data:" lines
-    rpc_response = None
-    for line in raw.splitlines():
-        if line.startswith("data: "):
-            rpc_response = json.loads(line[6:])
-            break
-    if rpc_response is None:
-        # Try parsing as plain JSON (non-SSE)
-        rpc_response = json.loads(raw)
-
-    # Extract snippet_search result from MCP JSON-RPC response
-    rpc_result = rpc_response.get("result", {})
-    content = rpc_result.get("content", [])
-    if not content:
-        print("Empty MCP response", file=sys.stderr)
-        sys.exit(1)
-    return json.loads(content[0].get("text", "{}"))
-
-
-def cli_main() -> None:
-    """CLI entry point."""
+def main() -> None:
+    """CLI: read snippet_search JSON from stdin, emit ExtractionResult."""
     import argparse
-    from dataclasses import asdict
 
     parser = argparse.ArgumentParser(
-        description="Extract ref mentions from ASTA snippet search"
+        description="Extract ref mentions from ASTA snippet_search JSON (stdin)"
     )
-    parser.add_argument("query", help="Search query string")
-    parser.add_argument(
-        "--limit", type=int, default=10, help="Max snippets (default 10)"
-    )
-    parser.add_argument(
-        "--paper-ids", help="Comma-separated paper IDs to scope search"
-    )
+    parser.add_argument("--query", default="", help="Original search query")
     parser.add_argument(
         "--pretty", action="store_true", help="Pretty-print JSON output"
     )
     args = parser.parse_args()
 
-    response = _call_snippet_search(args.query, args.limit, args.paper_ids)
-    result = extract_ref_mentions(response, args.query)
+    raw = sys.stdin.read()
+    if not raw.strip():
+        print("No input on stdin", file=sys.stderr)
+        sys.exit(1)
 
-    out = asdict(result)
+    response = json.loads(raw)
+    result = extract_ref_mentions(response, args.query)
     indent = 2 if args.pretty else None
-    print(json.dumps(out, indent=indent))
+    print(json.dumps(asdict(result), indent=indent))
 
 
 if __name__ == "__main__":
-    cli_main()
+    main()
