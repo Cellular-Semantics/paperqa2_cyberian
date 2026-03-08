@@ -1,0 +1,25 @@
+# MCP Server Configuration for OpenAI Codex
+# Place this file at ~/.codex/config.toml (global) or .codex/config.toml (project-scoped)
+
+[mcp_servers.ols4]
+enabled = true
+url = "http://www.ebi.ac.uk/ols4/api/mcp"
+startup_timeout_sec = 30.0
+tool_timeout_sec = 120.0
+
+[mcp_servers."artl-mcp"]
+enabled = true
+command = "uvx"
+args = ["artl-mcp"]
+
+[mcp_servers.playwright]
+enabled = true
+command = "npx"
+args = ["@playwright/mcp@latest"]
+
+[mcp_servers.Asta_semanticscholar]
+enabled = true
+url = "https://asta-tools.allen.ai/mcp/v1"
+headers = { "x-api-key" = "ASTA_API_KEY"}
+startup_timeout_sec = 30.0
+tool_timeout_sec = 120.0
